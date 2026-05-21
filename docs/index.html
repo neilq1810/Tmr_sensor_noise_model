@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TMR Noise Model</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <style>
+    body { font-size: 0.9rem; }
+    .sidebar {
+      width: 310px; min-width: 310px; overflow-y: auto;
+      height: calc(100vh - 52px);
+      background: #f5f5f5; border-right: 1px solid #dee2e6;
+      padding: 10px;
+    }
+    .plots-area { flex: 1; overflow-y: auto; padding: 12px 16px; height: calc(100vh - 52px); }
+    .section-header {
+      color: #fff; font-weight: 600; font-size: 0.82rem;
+      padding: 5px 10px; border-radius: 4px 4px 0 0; margin-bottom: 0;
+    }
+    .section-body { padding: 8px 10px; background: #fff; border: 1px solid #dee2e6; border-top: none; border-radius: 0 0 4px 4px; margin-bottom: 8px; }
+    .param-row { display: flex; align-items: center; margin-bottom: 5px; gap: 6px; }
+    .param-label { flex: 1; font-size: 0.8rem; color: #333; line-height: 1.2; }
+    .param-unit { font-size: 0.72rem; color: #888; min-width: 60px; }
+    .param-input { width: 90px; font-size: 0.8rem; padding: 2px 6px; }
+    .metric-card { background: #fff; border: 1px solid #dee2e6; border-radius: 6px; padding: 6px 14px; min-width: 130px; }
+    .metric-title { font-size: 0.72rem; color: #666; margin: 0; }
+    .metric-value { font-size: 1rem; font-weight: 700; margin: 0; }
+    .plot-div { width: 100%; height: 480px; }
+    .nav-tabs .nav-link { font-size: 0.85rem; padding: 6px 12px; }
+  </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-dark bg-dark py-0" style="height:52px">
+  <div class="container-fluid">
+    <span class="navbar-brand mb-0 fw-bold">&#9889; TMR Bridge Sensor &amp; Signal Chain Noise Model</span>
+    <span class="text-secondary small">INA &rarr; BPF &rarr; ADC &nbsp;|&nbsp; input- &amp; output-referred NSD &nbsp;|&nbsp; integrated RMS</span>
+  </div>
+</nav>
+
+<!-- Main layout -->
+<div class="d-flex">
+
+  <!-- ── Sidebar ─────────────────────────────────────────────── -->
+  <div class="sidebar">
+    <p class="fw-bold mb-2 mt-1" style="font-size:0.88rem">Parameters</p>
+
+    <!-- Bridge -->
+    <div class="section-header" style="background:#1565C0">Bridge Sensor</div>
+    <div class="section-body">
+      <div class="param-row"><span class="param-label">Arm resistance R</span><input type="number" id="br-R" class="form-control form-control-sm param-input" value="5000"><span class="param-unit">Ω</span></div>
+      <div class="param-row"><span class="param-label">Temperature T</span><input type="number" id="br-T" class="form-control form-control-sm param-input" value="298" min="1"><span class="param-unit">K</span></div>
+      <div class="param-row"><span class="param-label">1/f corner f<sub>c</sub></span><input type="number" id="br-fc" class="form-control form-control-sm param-input" value="100" min="0.001"><span class="param-unit">Hz</span></div>
+      <div class="param-row"><span class="param-label">Sensitivity</span><input type="number" id="br-sens" class="form-control form-control-sm param-input" value="1"><span class="param-unit">mV/V/mT</span></div>
+    </div>
+
+    <!-- INA -->
+    <div class="section-header" style="background:#2E7D32">Instrumentation Amp (INA)</div>
+    <div class="section-body">
+      <div class="param-row"><span class="param-label">Gain</span><input type="number" id="ina-gain" class="form-control form-control-sm param-input" value="100" min="0.001"><span class="param-unit">V/V</span></div>
+      <div class="param-row"><span class="param-label">Input voltage noise e<sub>n</sub></span><input type="number" id="ina-en" class="form-control form-control-sm param-input" value="7" min="0"><span class="param-unit">nV/√Hz</span></div>
+      <div class="param-row"><span class="param-label">Input current noise i<sub>n</sub></span><input type="number" id="ina-in" class="form-control form-control-sm param-input" value="0.4" min="0"><span class="param-unit">pA/√Hz</span></div>
+      <div class="param-row"><span class="param-label">Voltage noise 1/f f<sub>cv</sub></span><input type="number" id="ina-fcv" class="form-control form-control-sm param-input" value="10" min="0.001"><span class="param-unit">Hz</span></div>
+      <div class="param-row"><span class="param-label">Current noise 1/f f<sub>ci</sub></span><input type="number" id="ina-fci" class="form-control form-control-sm param-input" value="1" min="0.001"><span class="param-unit">Hz</span></div>
+    </div>
+
+    <!-- BPF -->
+    <div class="section-header" style="background:#E65100">Op-Amp BPF (MFB 2nd-order)</div>
+    <div class="section-body">
+      <div class="param-row"><span class="param-label">Passband gain</span><input type="number" id="bpf-gain" class="form-control form-control-sm param-input" value="10" min="0.001"><span class="param-unit">V/V</span></div>
+      <div class="param-row"><span class="param-label">Centre frequency f<sub>0</sub></span><input type="number" id="bpf-f0" class="form-control form-control-sm param-input" value="1000" min="0.001"><span class="param-unit">Hz</span></div>
+      <div class="param-row"><span class="param-label">Quality factor Q</span><input type="number" id="bpf-Q" class="form-control form-control-sm param-input" value="5" min="0.1"><span class="param-unit"></span></div>
+      <div class="param-row"><span class="param-label">Op-amp voltage noise e<sub>n</sub></span><input type="number" id="bpf-en" class="form-control form-control-sm param-input" value="10" min="0"><span class="param-unit">nV/√Hz</span></div>
+      <div class="param-row"><span class="param-label">Op-amp current noise i<sub>n</sub></span><input type="number" id="bpf-in" class="form-control form-control-sm param-input" value="0.01" min="0"><span class="param-unit">pA/√Hz</span></div>
+      <div class="param-row"><span class="param-label">Voltage noise 1/f f<sub>cv</sub></span><input type="number" id="bpf-fcv" class="form-control form-control-sm param-input" value="100" min="0.001"><span class="param-unit">Hz</span></div>
+      <div class="param-row"><span class="param-label">Input resistor R<sub>in</sub></span><input type="number" id="bpf-Rin" class="form-control form-control-sm param-input" value="10000" min="1"><span class="param-unit">Ω</span></div>
+      <div class="param-row"><span class="param-label">Feedback resistor R<sub>fb</sub></span><input type="number" id="bpf-Rfb" class="form-control form-control-sm param-input" value="100000" min="1"><span class="param-unit">Ω</span></div>
+    </div>
+
+    <!-- ADC -->
+    <div class="section-header" style="background:#6A1B9A">ADC</div>
+    <div class="section-body">
+      <div class="param-row"><span class="param-label">Resolution N</span><input type="number" id="adc-bits" class="form-control form-control-sm param-input" value="16" min="1" step="1"><span class="param-unit">bits</span></div>
+      <div class="param-row"><span class="param-label">Reference voltage V<sub>ref</sub></span><input type="number" id="adc-vref" class="form-control form-control-sm param-input" value="5" min="0.001"><span class="param-unit">V</span></div>
+      <div class="param-row"><span class="param-label">Sampling rate f<sub>s</sub></span><input type="number" id="adc-fs" class="form-control form-control-sm param-input" value="10000" min="1"><span class="param-unit">Hz</span></div>
+    </div>
+
+    <!-- Ref supply -->
+    <div class="section-header" style="background:#B71C1C">Bridge Bias Reference Supply</div>
+    <div class="section-body">
+      <div class="param-row"><span class="param-label">Supply voltage V<sub>s</sub></span><input type="number" id="ref-vs" class="form-control form-control-sm param-input" value="5" min="0.001"><span class="param-unit">V</span></div>
+      <div class="param-row"><span class="param-label">Supply noise e<sub>n</sub></span><input type="number" id="ref-en" class="form-control form-control-sm param-input" value="10" min="0"><span class="param-unit">nV/√Hz</span></div>
+      <div class="param-row"><span class="param-label">Supply 1/f f<sub>c</sub></span><input type="number" id="ref-fc" class="form-control form-control-sm param-input" value="10" min="0.001"><span class="param-unit">Hz</span></div>
+    </div>
+
+    <!-- Analysis -->
+    <div class="section-header" style="background:#004D40">Analysis Band</div>
+    <div class="section-body">
+      <div class="param-row"><span class="param-label">Sweep start</span><input type="number" id="an-fstart" class="form-control form-control-sm param-input" value="0.1" min="0.000001"><span class="param-unit">Hz</span></div>
+      <div class="param-row"><span class="param-label">Sweep end</span><input type="number" id="an-fend" class="form-control form-control-sm param-input" value="10000"><span class="param-unit">Hz</span></div>
+      <div class="param-row"><span class="param-label">Frequency points</span><input type="number" id="an-pts" class="form-control form-control-sm param-input" value="500" min="50" step="50"><span class="param-unit"></span></div>
+      <div class="param-row"><span class="param-label">RMS band low</span><input type="number" id="an-rmsl" class="form-control form-control-sm param-input" value="1" min="0.000001"><span class="param-unit">Hz</span></div>
+      <div class="param-row"><span class="param-label">RMS band high</span><input type="number" id="an-rmsh" class="form-control form-control-sm param-input" value="1000"><span class="param-unit">Hz</span></div>
+    </div>
+  </div><!-- /sidebar -->
+
+  <!-- ── Plots area ─────────────────────────────────────────── -->
+  <div class="plots-area">
+
+    <!-- Metrics strip -->
+    <div class="d-flex flex-wrap gap-2 mb-3">
+      <div class="metric-card">
+        <p class="metric-title">RMS Input-Referred</p>
+        <p class="metric-value" id="metric-rms-in">—</p>
+      </div>
+      <div class="metric-card">
+        <p class="metric-title">RMS Output-Referred</p>
+        <p class="metric-value" id="metric-rms-out">—</p>
+      </div>
+      <div class="metric-card">
+        <p class="metric-title">Dominant Source</p>
+        <p class="metric-value" id="metric-dom">—</p>
+      </div>
+      <div class="metric-card">
+        <p class="metric-title">Chain Gain @ f₀</p>
+        <p class="metric-value" id="metric-gain">—</p>
+      </div>
+      <div class="metric-card">
+        <p class="metric-title">BPF 3dB Bandwidth</p>
+        <p class="metric-value" id="metric-bw">—</p>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <ul class="nav nav-tabs" id="plotTabs">
+      <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-input">Input-Referred NSD</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-output">Output-Referred NSD</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-rms">Cumulative RMS</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-budget">Noise Budget</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-gain">Chain Gain</button></li>
+    </ul>
+
+    <div class="tab-content border border-top-0 rounded-bottom p-2 bg-white">
+      <div class="tab-pane fade show active" id="tab-input"><div id="plot-input-nsd" class="plot-div"></div></div>
+      <div class="tab-pane fade" id="tab-output"><div id="plot-output-nsd" class="plot-div"></div></div>
+      <div class="tab-pane fade" id="tab-rms"><div id="plot-rms" class="plot-div"></div></div>
+      <div class="tab-pane fade" id="tab-budget"><div id="plot-budget" class="plot-div"></div></div>
+      <div class="tab-pane fade" id="tab-gain"><div id="plot-gain" class="plot-div"></div></div>
+    </div>
+
+  </div><!-- /plots-area -->
+</div><!-- /d-flex -->
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+'use strict';
+
+// ── Constants ────────────────────────────────────────────────────────────────
+const kB = 1.380649e-23;
+
+const COLOURS = {
+  'Bridge':      '#2196F3',
+  'INA voltage': '#4CAF50',
+  'INA current': '#8BC34A',
+  'BPF':         '#FF9800',
+  'ADC':         '#9C27B0',
+  'Ref supply':  '#F44336',
+  'Total':       '#212121',
+};
+
+const DASHES = {
+  'Bridge':      'solid',
+  'INA voltage': 'solid',
+  'INA current': 'dash',
+  'BPF':         'solid',
+  'ADC':         'dot',
+  'Ref supply':  'dashdot',
+  'Total':       'solid',
+};
+
+// ── Math utilities ───────────────────────────────────────────────────────────
+
+function geomspace(start, end, n) {
+  if (n === 1) return [start];
+  return Array.from({length: n}, (_, i) => start * Math.pow(end / start, i / (n - 1)));
+}
+
+function trapezoid(y, x) {
+  let sum = 0;
+  for (let i = 0; i < x.length - 1; i++)
+    sum += 0.5 * (y[i] + y[i + 1]) * (x[i + 1] - x[i]);
+  return sum;
+}
+
+// Element-wise quadrature sum: sqrt(a² + b² + …)
+function vquad(...arrays) {
+  const n = arrays[0].length;
+  return Array.from({length: n}, (_, i) => {
+    let s = 0;
+    for (const a of arrays) s += a[i] * a[i];
+    return Math.sqrt(s);
+  });
+}
+
+function vmulS(arr, scalar) { return arr.map(v => v * scalar); }
+function vmulV(a, b)        { return a.map((v, i) => v * b[i]); }
+function vdivS(arr, scalar) { return arr.map(v => v / Math.max(Math.abs(scalar), 1e-300)); }
+function vdivV(arr, b)      { return arr.map((v, i) => v / Math.max(Math.abs(b[i]), 1e-300)); }
+
+function johnson(R, T) { return Math.sqrt(4 * kB * T * R); }
+
+function shape1f(f, fc) { return f.map(fi => Math.sqrt(1 + fc / fi)); }
+
+function rmsIntegrate(en, f, fLow, fHigh) {
+  const y = [], x = [];
+  for (let i = 0; i < f.length; i++) {
+    if (f[i] >= fLow && f[i] <= fHigh) { y.push(en[i] * en[i]); x.push(f[i]); }
+  }
+  if (x.length < 2) return 0;
+  return Math.sqrt(trapezoid(y, x));
+}
+
+// ── Noise source functions ───────────────────────────────────────────────────
+
+function bridgeNoise(f, R, T, fc) {
+  return vmulS(shape1f(f, fc), johnson(R, T));
+}
+
+function inaVoltageNoise(f, en_nV, fc_v) {
+  return vmulS(shape1f(f, fc_v), en_nV * 1e-9);
+}
+
+function inaCurrentNoise(f, in_pA, R_src, fc_i) {
+  return vmulS(shape1f(f, fc_i), in_pA * 1e-12 * R_src);
+}
+
+function bpfTransfer(f, gain, f0, Q) {
+  const w0 = 2 * Math.PI * f0;
+  return f.map(fi => {
+    const w   = 2 * Math.PI * fi;
+    const num = gain * (w0 / Q) * w;       // magnitude of numerator
+    const dRe = w0 * w0 - w * w;
+    const dIm = w * (w0 / Q);
+    return num / (Math.sqrt(dRe * dRe + dIm * dIm) || 1e-300);
+  });
+}
+
+function bpfNoiseOutput(f, en_nV, in_pA, fc_v, R_in, R_fb, gain, f0, Q, T) {
+  const en_v    = vmulS(shape1f(f, fc_v), en_nV * 1e-9);
+  const en_i_fb = in_pA * 1e-12 * R_fb;   // scalar — current noise through R_fb
+  const en_Rin  = johnson(R_in, T);
+  const en_Rfb  = johnson(R_fb, T);
+  // Combine at op-amp input, then shape by signal transfer function
+  const en_in   = en_v.map(ev =>
+    Math.sqrt(ev * ev + en_i_fb * en_i_fb + en_Rin * en_Rin + en_Rfb * en_Rfb));
+  return vmulV(en_in, bpfTransfer(f, gain, f0, Q));
+}
+
+function adcNoise(f, N_bits, Vref, fs) {
+  const lsb     = Vref / Math.pow(2, N_bits);
+  const density = (lsb / Math.sqrt(12)) / Math.sqrt(fs / 2);
+  return f.map(() => density);
+}
+
+function refSupplyNoise(f, en_nV, fc) {
+  return vmulS(shape1f(f, fc), en_nV * 1e-9);
+}
+
+// ── Signal chain computation ─────────────────────────────────────────────────
+
+function computeNoise(p) {
+  const f_start = Math.max(p.f_start, 1e-6);
+  const f_end   = Math.max(p.f_end, f_start * 10);
+  const f       = geomspace(f_start, f_end, Math.max(p.N_pts, 50));
+
+  const H_bpf   = bpfTransfer(f, p.bpf_gain, p.bpf_f0, p.bpf_Q);
+  const G_chain  = vmulS(H_bpf, p.ina_gain);
+
+  // Sources at INA input / bridge output (no referral needed)
+  const en_bridge = bridgeNoise(f, p.br_R, p.br_T, p.br_fc);
+  const en_ina_v  = inaVoltageNoise(f, p.ina_en, p.ina_fcv);
+  const en_ina_i  = inaCurrentNoise(f, p.ina_in, p.br_R, p.ina_fci);
+  const en_ref    = refSupplyNoise(f, p.ref_en, p.ref_fc);
+
+  // BPF noise: at BPF output → refer to INA input (÷ INA gain)
+  const en_bpf_out = bpfNoiseOutput(f, p.bpf_en, p.bpf_in, p.bpf_fcv,
+                                     p.bpf_Rin, p.bpf_Rfb,
+                                     p.bpf_gain, p.bpf_f0, p.bpf_Q, p.br_T);
+  const en_bpf = vdivS(en_bpf_out, p.ina_gain);
+
+  // ADC noise: at ADC output → refer to INA input (÷ full chain gain)
+  const en_adc_out = adcNoise(f, p.adc_bits, p.adc_vref, p.adc_fs);
+  const en_adc     = vdivV(en_adc_out, G_chain);
+
+  // Total input-referred (quadrature sum)
+  const en_total = vquad(en_bridge, en_ina_v, en_ina_i, en_bpf, en_adc, en_ref);
+
+  // Output-referred
+  const en_bridge_out  = vmulV(en_bridge, G_chain);
+  const en_ina_v_out   = vmulV(en_ina_v,  G_chain);
+  const en_ina_i_out   = vmulV(en_ina_i,  G_chain);
+  const en_bpf_i_out   = vmulV(en_bpf,    G_chain);
+  const en_adc_i_out   = vmulV(en_adc,    G_chain);
+  const en_ref_out     = vmulV(en_ref,     G_chain);
+  const en_total_out   = vmulV(en_total,   G_chain);
+
+  // RMS over integration band
+  const fl = Math.max(p.f_rmsl, f_start);
+  const fh = Math.max(p.f_rmsh, fl * 2);
+  return {
+    f, G_chain,
+    en_bridge, en_ina_v, en_ina_i, en_bpf, en_adc, en_ref, en_total,
+    en_bridge_out, en_ina_v_out, en_ina_i_out, en_bpf_i_out, en_adc_i_out, en_ref_out, en_total_out,
+    rms_input:  rmsIntegrate(en_total,     f, fl, fh),
+    rms_output: rmsIntegrate(en_total_out, f, fl, fh),
+    rms_bridge: rmsIntegrate(en_bridge,    f, fl, fh),
+    rms_ina_v:  rmsIntegrate(en_ina_v,     f, fl, fh),
+    rms_ina_i:  rmsIntegrate(en_ina_i,     f, fl, fh),
+    rms_bpf:    rmsIntegrate(en_bpf,       f, fl, fh),
+    rms_adc:    rmsIntegrate(en_adc,       f, fl, fh),
+    rms_ref:    rmsIntegrate(en_ref,       f, fl, fh),
+  };
+}
+
+// ── Plotly helpers ───────────────────────────────────────────────────────────
+
+const BASE_LAYOUT = {
+  plot_bgcolor:  '#fafafa',
+  paper_bgcolor: '#ffffff',
+  hovermode:     'x unified',
+  legend:        {x: 1.02, y: 1, xanchor: 'left'},
+  margin:        {l: 65, r: 160, t: 44, b: 55},
+};
+
+const LOG_X = {title: 'Frequency (Hz)', type: 'log', showgrid: true, gridcolor: '#e0e0e0'};
+const LOG_Y = {title: 'Noise Density (nV/√Hz)', type: 'log', showgrid: true, gridcolor: '#e0e0e0'};
+
+function nsdTrace(name, f, en) {
+  return {
+    x: f, y: en.map(v => v * 1e9),
+    name, mode: 'lines',
+    line: {color: COLOURS[name], dash: DASHES[name], width: name === 'Total' ? 2.5 : 1.5},
+  };
+}
+
+function plotNSD(divId, title, f, sources) {
+  const traces = sources.map(([name, en]) => nsdTrace(name, f, en));
+  Plotly.react(divId, traces, {...BASE_LAYOUT, title, xaxis: LOG_X, yaxis: LOG_Y});
+}
+
+function plotRmsAccum(r) {
+  const f = r.f, en2 = r.en_total.map(v => v * v);
+  const rmsAccum = [0];
+  let cs = 0;
+  for (let i = 0; i < f.length - 1; i++) {
+    cs += 0.5 * (en2[i] + en2[i + 1]) * (f[i + 1] - f[i]);
+    rmsAccum.push(Math.sqrt(cs) * 1e9);
+  }
+  Plotly.react('plot-rms', [{
+    x: f, y: rmsAccum, mode: 'lines', name: 'Cumulative RMS',
+    fill: 'tozeroy', fillcolor: 'rgba(33,150,243,0.1)',
+    line: {color: COLOURS['Total'], width: 2},
+  }], {
+    ...BASE_LAYOUT,
+    title:  'Cumulative Input-Referred RMS Noise',
+    legend: {x: 0.02, y: 0.97},
+    margin: {l: 65, r: 40, t: 44, b: 55},
+    xaxis:  LOG_X,
+    yaxis:  {title: 'Cumulative RMS Noise (nV_rms)', showgrid: true, gridcolor: '#e0e0e0'},
+  });
+}
+
+function plotBudget(r) {
+  const names  = ['Bridge', 'INA voltage', 'INA current', 'BPF', 'ADC', 'Ref supply'];
+  const vals   = [r.rms_bridge, r.rms_ina_v, r.rms_ina_i, r.rms_bpf, r.rms_adc, r.rms_ref]
+                  .map(v => v * 1e9);
+  const idx    = vals.map((_, i) => i).sort((a, b) => vals[b] - vals[a]);
+  const sNames = idx.map(i => names[i]);
+  const sVals  = idx.map(i => vals[i]);
+  Plotly.react('plot-budget', [{
+    x: sVals, y: sNames, orientation: 'h', type: 'bar',
+    marker: {color: idx.map(i => COLOURS[names[i]])},
+    text: sVals.map(v => v.toFixed(2) + ' nV'), textposition: 'outside',
+  }], {
+    ...BASE_LAYOUT,
+    title:       'Noise Budget (Input-Referred RMS per Source)',
+    showlegend:  false,
+    margin:      {l: 110, r: 80, t: 44, b: 55},
+    xaxis:       {title: 'RMS Noise (nV_rms)', showgrid: true, gridcolor: '#e0e0e0'},
+    yaxis:       {autorange: 'reversed'},
+  });
+}
+
+function plotGain(r) {
+  const G_db = r.G_chain.map(g => 20 * Math.log10(Math.abs(g) + 1e-300));
+  Plotly.react('plot-gain', [{
+    x: r.f, y: G_db, mode: 'lines', name: 'Chain Gain',
+    line: {color: '#3F51B5', width: 2},
+  }], {
+    ...BASE_LAYOUT,
+    title:  'Signal Chain Gain Profile',
+    margin: {l: 65, r: 40, t: 44, b: 55},
+    xaxis:  LOG_X,
+    yaxis:  {title: 'Gain (dB)', showgrid: true, gridcolor: '#e0e0e0'},
+  });
+}
+
+// ── Parameter reader ─────────────────────────────────────────────────────────
+
+function fv(id, def, minVal = -Infinity) {
+  const el = document.getElementById(id);
+  let v = el ? parseFloat(el.value) : def;
+  if (!isFinite(v)) v = def;
+  return Math.max(v, minVal);
+}
+function iv(id, def, minVal = 1) {
+  const el = document.getElementById(id);
+  let v = el ? parseInt(el.value) : def;
+  if (!isFinite(v)) v = def;
+  return Math.max(v, minVal);
+}
+
+function getParams() {
+  return {
+    br_R:    fv('br-R',    5000,   1),
+    br_T:    fv('br-T',    298,    1),
+    br_fc:   fv('br-fc',   100,    0.001),
+    ina_gain: fv('ina-gain', 100,  0.001),
+    ina_en:  fv('ina-en',  7,      0),
+    ina_in:  fv('ina-in',  0.4,    0),
+    ina_fcv: fv('ina-fcv', 10,     0.001),
+    ina_fci: fv('ina-fci', 1,      0.001),
+    bpf_gain: fv('bpf-gain', 10,   0.001),
+    bpf_f0:  fv('bpf-f0',  1000,   0.001),
+    bpf_Q:   fv('bpf-Q',   5,      0.1),
+    bpf_en:  fv('bpf-en',  10,     0),
+    bpf_in:  fv('bpf-in',  0.01,   0),
+    bpf_fcv: fv('bpf-fcv', 100,    0.001),
+    bpf_Rin: fv('bpf-Rin', 10000,  1),
+    bpf_Rfb: fv('bpf-Rfb', 100000, 1),
+    adc_bits: iv('adc-bits', 16,   1),
+    adc_vref: fv('adc-vref', 5,    0.001),
+    adc_fs:  fv('adc-fs',  10000,  1),
+    ref_en:  fv('ref-en',  10,     0),
+    ref_fc:  fv('ref-fc',  10,     0.001),
+    f_start: fv('an-fstart', 0.1,  1e-6),
+    f_end:   fv('an-fend', 10000,  1),
+    N_pts:   iv('an-pts',  500,    50),
+    f_rmsl:  fv('an-rmsl', 1,      1e-6),
+    f_rmsh:  fv('an-rmsh', 1000,   1),
+  };
+}
+
+// ── Main update ──────────────────────────────────────────────────────────────
+
+function fmtRms(v) {
+  const nv = v * 1e9;
+  return nv >= 1000 ? `${(nv / 1000).toFixed(2)} µV_rms` : `${nv.toFixed(1)} nV_rms`;
+}
+
+function updateAll() {
+  const p = getParams();
+  const r = computeNoise(p);
+
+  // NSD plots
+  plotNSD('plot-input-nsd', 'Input-Referred Noise Spectral Density', r.f, [
+    ['Bridge', r.en_bridge], ['INA voltage', r.en_ina_v], ['INA current', r.en_ina_i],
+    ['BPF', r.en_bpf], ['ADC', r.en_adc], ['Ref supply', r.en_ref], ['Total', r.en_total],
+  ]);
+  plotNSD('plot-output-nsd', 'Output-Referred Noise Spectral Density', r.f, [
+    ['Bridge', r.en_bridge_out], ['INA voltage', r.en_ina_v_out], ['INA current', r.en_ina_i_out],
+    ['BPF', r.en_bpf_i_out], ['ADC', r.en_adc_i_out], ['Ref supply', r.en_ref_out], ['Total', r.en_total_out],
+  ]);
+  plotRmsAccum(r);
+  plotBudget(r);
+  plotGain(r);
+
+  // Metrics
+  document.getElementById('metric-rms-in').textContent  = fmtRms(r.rms_input);
+  document.getElementById('metric-rms-out').textContent = fmtRms(r.rms_output);
+
+  const srcRms = {
+    'Bridge': r.rms_bridge, 'INA voltage': r.rms_ina_v, 'INA current': r.rms_ina_i,
+    'BPF': r.rms_bpf, 'ADC': r.rms_adc, 'Ref supply': r.rms_ref,
+  };
+  document.getElementById('metric-dom').textContent  = Object.keys(srcRms).reduce((a, b) => srcRms[a] > srcRms[b] ? a : b);
+  document.getElementById('metric-gain').textContent = `${(20 * Math.log10(p.ina_gain * p.bpf_gain)).toFixed(1)} dB`;
+  document.getElementById('metric-bw').textContent   = `${(p.bpf_f0 / p.bpf_Q).toFixed(1)} Hz`;
+}
+
+// Debounce — wait 150 ms after last keystroke before updating
+let _debTimer;
+function debouncedUpdate() { clearTimeout(_debTimer); _debTimer = setTimeout(updateAll, 150); }
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Attach listeners to all numeric inputs
+  document.querySelectorAll('input[type=number]').forEach(el => {
+    el.addEventListener('input', debouncedUpdate);
+  });
+
+  // Re-size Plotly when a hidden tab becomes visible
+  document.querySelectorAll('button[data-bs-toggle="tab"]').forEach(btn => {
+    btn.addEventListener('shown.bs.tab', () => {
+      document.querySelectorAll('.plot-div').forEach(div => Plotly.Plots.resize(div));
+    });
+  });
+
+  // First render
+  updateAll();
+});
+</script>
+</body>
+</html>
